@@ -1,4 +1,1 @@
-{"features": ["id", "campaign_type", "campaign_duration", "coupon_n_items", "coupon_n_brands", "coupon_n_categories", "coupon_dominant_brand_type", "age_range", "marital_status", "rented", "family_size", "no_of_children", "income_bracket", "qty_sum", "qty_mean", "spend_sum", "spend_mean", "avg_other_discount", "avg_coupon_discount", "days_since_last_purchase", "num_transactions"], "date_cols": [],  "uplift_threshold": 0.0005,
-"demo_mode": true,
-"demo_multiplier": 50,
-"demo_min_uplift": 0.001}
+{"features": ["id", "campaign_type", "campaign_duration", "coupon_n_items", "coupon_n_brands", "coupon_n_categories", "coupon_dominant_brand_type", "age_range", "marital_status", "rented", "family_size", "no_of_children", "income_bracket", "qty_sum", "qty_mean", "spend_sum", "spend_mean", "avg_other_discount", "avg_coupon_discount", "days_since_last_purchase", "num_transactions", "cust_fav_category", "cust_fav_brand"], "date_cols": [], "uplift_threshold": 0.002, "supports_components": true}
