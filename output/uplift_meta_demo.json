@@ -1,0 +1,10 @@
+{"features": ["id", "campaign_type", "campaign_duration", "coupon_n_items", "coupon_n_brands", "coupon_n_categories", "coupon_dominant_brand_type", "age_range", "marital_status", "rented", "family_size", "no_of_children", "income_bracket", "qty_sum", "qty_mean", "spend_sum", "spend_mean", "avg_other_discount", "avg_coupon_discount", "days_since_last_purchase", "num_transactions"],   "date_cols": [],
+"uplift_threshold": 0.002,
+"supports_components": true,
+"demo_mode": true,
+"demo": {
+    "enabled": true,
+    "uplift_multiplier": 8.0,
+    "min_uplift_display": 0.0005,
+    "cap_probability": 0.99,
+    "show_annotations": true}}
