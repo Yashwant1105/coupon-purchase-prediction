@@ -1,4 +1,3 @@
-# src/app.py  (updated for robustness and demo mode scaling)
 import os
 import json
 import joblib
@@ -10,15 +9,12 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any, List, Optional, Union
 
-# ------------------------------
-# CONFIG / PATHS (edit if needed)
-# ------------------------------
 BASE_DIR = os.path.dirname(__file__) or "."
 OUTPUT_DIR = os.path.join(BASE_DIR, "..", "output")
 SRC_DIR = os.path.join(BASE_DIR)
 
 BASELINE_MODEL_PATH = os.path.join(OUTPUT_DIR, "baseline_lgbm_on_uplift_features.joblib")
-# fallback names that you might have from earlier runs
+
 ALT_BASELINE_PATHS = [
     os.path.join(OUTPUT_DIR, "baseline_lgbm_boosted.joblib"),
     os.path.join(OUTPUT_DIR, "baseline_lgbm.joblib"),
@@ -26,7 +22,7 @@ ALT_BASELINE_PATHS = [
 
 P_TREATED_MODEL_PATH = os.path.join(OUTPUT_DIR, "p_treated_model.joblib")
 P_CONTROL_MODEL_PATH = os.path.join(OUTPUT_DIR, "p_control_model.joblib")
-ALT_PAIRED_MODEL_PATH = os.path.join(OUTPUT_DIR, "x_learner_lgbm.joblib")  # causalml object as fallback
+ALT_PAIRED_MODEL_PATH = os.path.join(OUTPUT_DIR, "x_learner_lgbm.joblib")  
 
 META_PATH = os.path.join(OUTPUT_DIR, "uplift_meta.json")
 LABEL_MAPS_PATH = os.path.join(OUTPUT_DIR, "label_maps.json")
@@ -35,9 +31,6 @@ CUST_DEMO_CSV = os.path.join(SRC_DIR, "cust_demo_feat.csv")
 CUST_TRANS_CSV = os.path.join(SRC_DIR, "cust_trans_features.csv")
 CAMPAIGN_CSV = os.path.join(SRC_DIR, "campaign_feat.csv")
 
-# ---------------------------
-# small utilities to load/save
-# ---------------------------
 def safe_load_joblib(path: str):
     if os.path.exists(path):
         return joblib.load(path)
@@ -48,31 +41,25 @@ def safe_load_json(path: str):
         return json.load(open(path, "r"))
     return {}
 
-# ---------------------------
-# load metadata, label maps
-# ---------------------------
 meta = safe_load_json(META_PATH)
-# Ensure demo settings are present for visual clarity in UI
+
 if 'demo_mode' not in meta:
     meta['demo_mode'] = True
 if 'demo' not in meta:
     meta['demo'] = {
         "enabled": True,
-        "uplift_multiplier": 50.0, # Increased multiplier for visibility
+        "uplift_multiplier": 50.0,
         "min_uplift_display": 0.005,
         "cap_probability": 0.99
     }
 if 'uplift_threshold' not in meta:
-    meta['uplift_threshold'] = 0.005 # Default threshold for decision making
+    meta['uplift_threshold'] = 0.005 
 
 label_maps = safe_load_json(LABEL_MAPS_PATH)
 FEATURES = meta.get("features", [])
 DATE_COLS = set(meta.get("date_cols", []))
-UPLIFT_THRESHOLD = float(meta.get("uplift_threshold", 0.005)) # Use the configured default
+UPLIFT_THRESHOLD = float(meta.get("uplift_threshold", 0.005)) 
 
-# ---------------------------
-# load lookup csvs (safe)
-# ---------------------------
 def _load_csv_or_empty(path, index_col):
     if os.path.exists(path):
         df = pd.read_csv(path)
@@ -89,9 +76,6 @@ cust_demo_dict  = cust_demo_df.to_dict(orient="index") if not cust_demo_df.empty
 cust_trans_dict = cust_trans_df.to_dict(orient="index") if not cust_trans_df.empty else {}
 campaign_dict   = campaign_df.to_dict(orient="index") if not campaign_df.empty else {}
 
-# ---------------------------
-# Load models (try robust fallbacks)
-# ---------------------------
 model_load_errors = []
 baseline_model = safe_load_joblib(BASELINE_MODEL_PATH)
 if baseline_model is None:
@@ -103,15 +87,12 @@ if baseline_model is None:
 p_treated_model = safe_load_joblib(P_TREATED_MODEL_PATH)
 p_control_model = safe_load_joblib(P_CONTROL_MODEL_PATH)
 
-# If paired outcome models are missing but a single uplift object is present, load that as `uplift_model`
 uplift_model = None
 if (p_treated_model is None or p_control_model is None):
     uplift_model = safe_load_joblib(ALT_PAIRED_MODEL_PATH)
     if uplift_model is None:
-        # no-op; we'll raise later if necessary
         pass
 
-# collect any missing-file info
 if baseline_model is None:
     model_load_errors.append("baseline model not found")
 if (p_treated_model is None or p_control_model is None) and uplift_model is None:
@@ -119,9 +100,6 @@ if (p_treated_model is None or p_control_model is None) and uplift_model is None
 
 model_load_error = "; ".join(model_load_errors) if model_load_errors else None
 
-# ---------------------------
-# FastAPI app and models
-# ---------------------------
 app = FastAPI(title="Coupon Redemption + Uplift API", version="1.1")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -133,14 +111,9 @@ class PredictRequest(BaseModel):
 class BatchPredictRequest(BaseModel):
     requests: List[PredictRequest]
 
-# small rotating buffer to keep last N prediction results
 LAST_QUEUE_MAX = 5
 _last_predictions = deque(maxlen=LAST_QUEUE_MAX)
 
-# ---------------------------
-# Helpers: numeric/date/label encoding (FIXED: use Unix Epoch for dates)
-# ---------------------------
-# Global reference for date conversion (Unix Epoch)
 EPOCH = pd.Timestamp("1970-01-01")
 
 def _convert_dates_to_numeric_row(row: Dict[str, Any]):
@@ -152,7 +125,6 @@ def _convert_dates_to_numeric_row(row: Dict[str, Any]):
                 if pd.isna(dt):
                     out[k] = 0
                 else:
-                    # Convert to days since Epoch
                     out[k] = int((dt - EPOCH).days)
             except Exception:
                 out[k] = 0
@@ -205,22 +177,13 @@ def build_feature_row(customer_id: int, campaign_id: int, coupon_id: int) -> pd.
     X = pd.DataFrame([row], columns=FEATURES).apply(pd.to_numeric, errors="coerce").fillna(0.0)
     return X
 
-# ---------------------------
-# Helper: unify different model output formats (kept for robustness, though T-Learner specific code is used)
-# ---------------------------
 def _safe_prob_from_model(model, X: pd.DataFrame) -> Optional[np.ndarray]:
-    """
-    Return an array of probabilities (shape n,) for the positive class.
-    Accepts sklearn-style models (predict_proba) or LightGBM boosters.
-    If model returns something else, tries best-effort conversions.
-    """
     if model is None:
         return None
 
-    # sklearn style predict_proba
+
     if hasattr(model, "predict_proba"):
         probs = model.predict_proba(X)
-        # if shape (n,2) take column 1, else if (n,1) take it
         if probs.ndim == 2 and probs.shape[1] >= 2:
             return np.asarray(probs)[:, 1].flatten()
         elif probs.ndim == 2 and probs.shape[1] == 1:
@@ -228,13 +191,11 @@ def _safe_prob_from_model(model, X: pd.DataFrame) -> Optional[np.ndarray]:
         else:
             return np.asarray(probs).flatten()
 
-    # LightGBM booster may implement .predict returning probabilities
     if hasattr(model, "predict"):
         out = model.predict(X)
         arr = np.asarray(out).flatten()
         return arr
 
-    # otherwise, cannot interpret
     return None
 
 def _get_uplift_components_from_uplift_model(uplift_model, X: pd.DataFrame):
@@ -242,12 +203,9 @@ def _get_uplift_components_from_uplift_model(uplift_model, X: pd.DataFrame):
     If we loaded a single uplift model (e.g. x_learner), try to extract
     (uplift, p_treated, p_control). Returns (uplift_arr, p_with_arr, p_without_arr).
     """
-    # This block is only for the X-Learner fallback and remains as is
-    # ... (code omitted for brevity, it's correct for X-Learner) ...
     if uplift_model is None:
         return None, None, None
 
-    # try common predict signatures
     try:
         out = uplift_model.predict(X, return_components=True)
         if isinstance(out, tuple) and len(out) == 3:
@@ -255,7 +213,6 @@ def _get_uplift_components_from_uplift_model(uplift_model, X: pd.DataFrame):
             p_with_arr = np.asarray(out[1]).flatten()
             p_without_arr = np.asarray(out[2]).flatten()
             return uplift_arr, p_with_arr, p_without_arr
-        # sometimes returns dict
         if isinstance(out, dict):
             uplift_arr = np.asarray(out.get("uplift") or out.get("tau") or list(out.values())[0]).flatten()
             p_with_arr = np.asarray(out.get("treatment") or out.get("p_treated") or out.get("p_with") or [np.nan]*len(uplift_arr)).flatten()
@@ -264,7 +221,6 @@ def _get_uplift_components_from_uplift_model(uplift_model, X: pd.DataFrame):
     except Exception:
         pass
 
-    # fallback: try predict without components (some versions)
     try:
         uplift_arr = np.asarray(uplift_model.predict(X)).flatten()
         return uplift_arr, None, None
@@ -280,9 +236,9 @@ def _clamp_probs(arr: Union[np.ndarray, List[float]]) -> np.ndarray:
     a = np.clip(a, 0.0, 1.0)
     return a
 
-# ---------------------------
-# Routes
-# ---------------------------
+
+# routes
+
 @app.get("/")
 def root():
     return {"message": "Coupon Uplift API running", "models_loaded": model_load_error is None}
@@ -300,7 +256,6 @@ def health():
 def last_predictions():
     return {"last_predictions": list(_last_predictions)}
 
-# inside src/app.py (replace current predict endpoint with this)
 @app.post("/predict")
 def predict(req: PredictRequest):
     if model_load_error:
@@ -309,7 +264,6 @@ def predict(req: PredictRequest):
     try:
         X = build_feature_row(req.customer_id, req.campaign_id, req.coupon_id)
 
-        # Baseline probability (boosted classifier)
         if baseline_model is None:
             raise RuntimeError("Baseline model unavailable")
 
@@ -318,7 +272,6 @@ def predict(req: PredictRequest):
         else:
             prob_baseline = float(baseline_model.predict(X)[0])
             
-        # p_with and p_without using two outcome models
         if p_treated_model is None or p_control_model is None:
             raise RuntimeError("P_treated / P_control models unavailable")
 
@@ -332,15 +285,11 @@ def predict(req: PredictRequest):
         else:
             p_without_raw = float(p_control_model.predict(X)[0])
 
-        # Compute raw uplift (model output)
         uplift_raw = float(p_with_raw - p_without_raw)
 
-        # ------------------- DEMO MODE ADJUSTMENTS -------------------
-        # Demo config is now guaranteed to be available from the top-level loading block
         demo_cfg = meta['demo']
         demo_enabled = bool(meta['demo_mode']) and demo_cfg['enabled']
 
-        # By default, display raw model outputs
         p_with_disp = p_with_raw
         p_without_disp = p_without_raw
         uplift_disp = uplift_raw
@@ -350,22 +299,15 @@ def predict(req: PredictRequest):
             min_display = float(demo_cfg.get("min_uplift_display", 0.005))
             cap_prob = float(demo_cfg.get("cap_probability", 0.99))
             
-            # --- SCALING ---
-            # scale uplift (only for display)
             uplift_disp = uplift_raw * mult
 
-            # if scaled uplift is tiny, floor to min_display for clearer UI
             if uplift_disp > 0 and uplift_disp < min_display:
                 uplift_disp = min_display
             if uplift_disp < 0 and abs(uplift_disp) < min_display:
                 uplift_disp = -min_display
-
-            # recompute displayed p_with so numbers are consistent: p_with = p_without + uplift
-            # Use raw p_without as base, but ensure it's clipped
             p_without_disp = np.clip(p_without_raw, 0.0, 1.0)
             p_with_disp = np.clip(p_without_disp + uplift_disp, 0.0, cap_prob)
 
-        # Final recommendation based on displayed uplift & threshold in meta
         uplift_threshold = float(meta.get("uplift_threshold", UPLIFT_THRESHOLD))
         recommendation = "Target ✅" if uplift_disp >= uplift_threshold else "Do not target ❌"
 
@@ -379,7 +321,7 @@ def predict(req: PredictRequest):
             "demo_mode": demo_enabled
         }
         
-        _last_predictions.append(response) # Update the buffer
+        _last_predictions.append(response)
 
         return response
 
@@ -396,7 +338,6 @@ def batch_predict(reqs: BatchPredictRequest):
     results = []
     for r in reqs.requests:
         resp = predict(PredictRequest(**r.dict()))
-        # Remove demo_mode from the individual result for cleaner batch output
         if 'demo_mode' in resp:
             del resp['demo_mode']
         
